@@ -1,4 +1,4 @@
-const CACHE = 'roteirizador-pwa-v1';
+const CACHE = 'roteirizador-pwa-v4';
 const ASSETS = [
   './',
   './index.html',
