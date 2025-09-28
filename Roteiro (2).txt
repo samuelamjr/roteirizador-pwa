@@ -1,0 +1,108 @@
+Rota: são Paulo -> Florianópolis
+Distância: 782.1 km  Tempo: 675 min
+
+Cidades:
+ - —
+
+Atrações:
+ - Viaduto do Chá — São Paulo
+ - (sem nome) — São Paulo
+ - Parque Amantikir — Campos do Jordão
+
+Museus:
+ - Estúdio Lâmina — São Paulo
+
+Mirantes:
+ - Mirante Nossa Senhora Auxiliadora — Pindamonhangaba
+ - Vista Chinesa — Campos do Jordão
+
+Restaurantes:
+ - (sem nome) — Taubaté
+ - Le Bistro — Taubaté
+ - Cantina Pizzaria Brunello — Taubaté
+ - Kusuki — São Paulo
+ - Bar e Restaurante 1010 — São Paulo
+ - Chapadão — São Paulo
+ - Restaurante Kyodai — São Paulo
+ - Bar e Restaurante Chaplin — São Paulo
+ - Sukiya — São Paulo
+ - Moça Paulista — São Paulo
+ - New Daruma — São Paulo
+ - Catedral Especialidades Árabes — São Paulo
+ - Porque Sim — São Paulo
+ - Jardim Meio Hectare — São Paulo
+ - Liberdade Grill — São Paulo
+ - Pizzaria Don Nicoli — São Paulo
+ - Restaurante Libanes — São Paulo
+ - Restaurante Miape — São Paulo
+ - Santa Tereza — São Paulo
+ - Restaurante Gerações — São Paulo
+ - Restaurante Yamaga — São Paulo
+ - (sem nome) — São Paulo
+ - Rancho da Traira — São Paulo
+ - Lancheteria Happy House — São Paulo
+ - Gourmet - Kilo — São Paulo
+ - Delícias Café — São Paulo
+ - Bar Guanabara — São Paulo
+ - Sukiya Restaurante — São Paulo
+ - Apfel — São Paulo
+ - Korte — São Paulo
+ - Feijão de Corda — São Paulo
+ - Saborear — São Paulo
+ - Sushi Lika — São Paulo
+ - Lamen Kazu — São Paulo
+ - Izakaya Kazu — São Paulo
+ - Meu Udon — São Paulo
+ - Multibar — São Paulo
+ - Anchieta — São Paulo
+ - (sem nome) — São Paulo
+ - (sem nome) — São Paulo
+ - (sem nome) — São Paulo
+ - (sem nome) — São Paulo
+ - (sem nome) — São Paulo
+ - Laço de Ouro — São Paulo
+ - Udon Nakamura — São Paulo
+ - (sem nome) — São Paulo
+ - (sem nome) — São Paulo
+ - (sem nome) — São Paulo
+ - (sem nome) — São Paulo
+ - O Bonde — São Paulo
+ - (sem nome) — São Paulo
+ - (sem nome) — São Paulo
+ - Cascais — São Paulo
+ - Fazenda Grill — São Paulo
+ - (sem nome) — São Paulo
+ - (sem nome) — São Paulo
+ - Restaurante Finisteri — São Paulo
+ - (sem nome) — São Paulo
+ - (sem nome) — São Paulo
+ - Bovinu's Fast Grill — São Paulo
+ - Piero Pasta e Café — São Paulo
+ - Macro Bella — São Paulo
+ - Al Hoda — São Paulo
+ - Bosque dos Morassi — São Bernardo do Campo
+ - Aboud Síria — São Paulo
+ - Minas Chic — São Paulo
+ - Espetinho da Ipiranga — São Paulo
+ - Taberna Gaúcha Churrasqueira e Pizzaria — São Paulo
+
+Postos:
+ - Auto Posto Cidade — São Paulo
+ - BR — São Paulo
+ - BR — Campos do Jordão
+ - (sem nome) — São Paulo
+ - (sem nome) — São Paulo
+ - Shell — São Paulo
+ - Auto Posto Bosque Saúde — São Paulo
+ - (sem nome) — São Paulo
+ - Shell — São Paulo
+ - (sem nome) — São Paulo
+ - (sem nome) — São Paulo
+ - Posto de Serviços Mariana — São Paulo
+
+Hospitais:
+ - —
+Clínicas:
+ - —
+Farmácias:
+ - —
