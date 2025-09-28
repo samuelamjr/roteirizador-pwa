@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Roteirizador</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#0b5ed7" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+  <style>
+    html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto; }
+    #app { display: grid; grid-template-columns: 340px 1fr; height: 100%; }
+    #sidebar { padding: 10px; border-right: 1px solid #e5e7eb; overflow:auto; }
+    #map { width: 100%; height: 100%; }
+    .panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 10px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+    .panel h3 { margin: 0 0 8px; font-size: 16px; }
+    .row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+    input[type="text"], select { width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 8px; }
+    .btn { background: #0b5ed7; color:#fff; border:0; padding:8px 10px; border-radius:10px; cursor:pointer; }
+    .btn.secondary { background:#374151; }
+    .muted { color:#6b7280; font-size:12px; }
+    .legend { display:flex; flex-wrap: wrap; gap:6px; }
+    .legend span { font-size:12px; padding:4px 6px; border-radius:6px; background:#eef2ff; }
+    @media (max-width: 900px) {
+      #app { grid-template-columns: 1fr; }
+      #sidebar { border-right: 0; border-bottom: 1px solid #e5e7eb; }
+      #map { height: calc(100vh - 360px); }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <div class="panel">
+      <h3>Planejar rota</h3>
+      <div class="row"><input id="start" type="text" placeholder="Origem (ex.: São Paulo, SP)" /></div>
+      <div class="row"><input id="end" type="text" placeholder="Destino (ex.: Campos do Jordão, SP)" /></div>
+      <div class="row">
+        <select id="profile">
+          <option value="driving">Carro / Moto</option>
+          <option value="foot">A pé</option>
+          <option value="cycling">Bicicleta</option>
+        </select>
+        <input id="radius" type="number" min="100" step="100" value="1000" title="Raio (m)" />
+      </div>
+      <div class="row">
+        <button id="goBtn" class="btn">Traçar rota</button>
+        <button id="clearBtn" class="btn secondary">Limpar</button>
+      </div>
+      <div class="muted">Dica: arraste a linha para ajustar por regiões mais turísticas.</div>
+      <div id="summary" class="muted" style="margin-top:6px;">—</div>
+    </div>
+
+    <div class="panel">
+      <h3>POIs</h3>
+      <label><input type="checkbox" class="cat" value="hotel" checked /> Hotéis/pousadas/hostel</label><br />
+      <label><input type="checkbox" class="cat" value="restaurant" checked /> Restaurantes</label><br />
+      <label><input type="checkbox" class="cat" value="cafe" /> Cafés</label><br />
+      <label><input type="checkbox" class="cat" value="bar" /> Bares</label><br />
+      <label><input type="checkbox" class="cat" value="fuel" checked /> Postos</label><br />
+      <label><input type="checkbox" class="cat" value="hospital" checked /> Hospitais</label><br />
+      <label><input type="checkbox" class="cat" value="pharmacy" /> Farmácias</label><br />
+      <label><input type="checkbox" class="cat" value="viewpoint" /> Mirantes</label><br />
+      <label><input type="checkbox" class="cat" value="attraction" /> Atrações</label>
+      <div class="row" style="margin-top:8px">
+        <button id="poisBtn" class="btn" disabled>Buscar POIs (manual)</button>
+        <span class="muted">POIs atualizam automaticamente ao mudar a rota.</span>
+      </div>
+      <div id="poiCount" class="muted"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Instalar</h3>
+      <div class="muted">No celular: “Adicionar à tela inicial”.</div>
+    </div>
+  </div>
+
+  <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js"></script>
+<script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+
+<script>
+const map = L.map('map').setView([-23.55,-46.63],7);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19, attribution:'&copy; OpenStreetMap'}).addTo(map);
+
+let routeControl, routeLine;
+const poiLayer = L.layerGroup().addTo(map);
+let autoFetchTimer = null;
+
+const iconFor = (cat) => L.divIcon({
+  className: 'poi',
+  html: `<div style="background:#111827;color:#fff;border-radius:10px;padding:2px 6px;font-size:12px;">${{
+    hotel:'🏨', guest_house:'🏨', hostel:'🏨', motel:'🏨',
+    restaurant:'🍽️', cafe:'☕', bar:'🍺',
+    fuel:'⛽', hospital:'🏥', pharmacy:'💊',
+    viewpoint:'👀', attraction:'🎯'
+  }[cat]||'📍'}</div>`
+});
+
+function buildRouter(profile){
+  if(routeControl){map.removeControl(routeControl);}
+  routeControl=L.Routing.control({
+    waypoints:[], routeWhileDragging:true, show:false, addWaypoints:true, collapsible:true,
+    plan:L.Routing.plan([], {createMarker:(i,wp)=>L.marker(wp.latLng)}),
+    router:L.Routing.osrmv1({serviceUrl:'https://router.project-osrm.org/route/v1', profile})
+  }).addTo(map);
+
+  const refresh=()=>{ if(autoFetchTimer) clearTimeout(autoFetchTimer); autoFetchTimer=setTimeout(fetchPOIs,600); };
+
+  routeControl.on('routesfound',e=>{
+    const r=e.routes[0]; if(!r) return;
+    if(routeLine) map.removeLayer(routeLine);
+    routeLine=L.polyline(r.coordinates,{color:'#2563eb',weight:5}).addTo(map);
+    const km=(r.summary.totalDistance/1000).toFixed(1);
+    const min=Math.round(r.summary.totalTime/60);
+    document.getElementById('summary').textContent=`Distância: ${km} km · Tempo: ${min} min`;
+    document.getElementById('poisBtn').disabled=false;
+    refresh();
+  });
+  routeControl.on('waypointschanged',refresh);
+  routeControl.on('routeselected',refresh);
+}
+buildRouter('driving');
+
+async function geocode(q){
+  const u=`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`;
+  const r=await fetch(u,{headers:{'Accept-Language':'pt-BR'}});
+  const j=await r.json(); if(!j[0]) throw new Error('Endereço não encontrado: '+q);
+  return L.latLng(parseFloat(j[0].lat),parseFloat(j[0].lon));
+}
+
+document.getElementById('goBtn').addEventListener('click', async()=>{
+  const s=document.getElementById('start').value.trim();
+  const e=document.getElementById('end').value.trim();
+  const p=document.getElementById('profile').value;
+  if(!s||!e){alert('Informe origem e destino.');return;}
+  buildRouter(p);
+  try{const [a,b]=await Promise.all([geocode(s),geocode(e)]); routeControl.setWaypoints([a,b]); poiLayer.clearLayers(); document.getElementById('poiCount').textContent='';}
+  catch(err){alert(err.message);}
+});
+
+document.getElementById('clearBtn').addEventListener('click',()=>{
+  if(routeControl) routeControl.setWaypoints([]);
+  if(routeLine){map.removeLayer(routeLine); routeLine=null;}
+  poiLayer.clearLayers(); document.getElementById('summary').textContent='—'; document.getElementById('poiCount').textContent=''; document.getElementById('poisBtn').disabled=true;
+});
+
+document.getElementById('profile').addEventListener('change',e=>buildRouter(e.target.value));
+
+async function fetchPOIs(){
+  if(!routeLine) return;
+  const radiusM=parseInt(document.getElementById('radius').value||'1000',10);
+  const selected=Array.from(document.querySelectorAll('.cat:checked')).map(c=>c.value);
+  if(selected.length===0){document.getElementById('poiCount').textContent='Selecione categorias.';return;}
+  const b=routeLine.getBounds();
+  const bbox=[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()];
+  const parts=[]; const push=(q)=>parts.push(q+`(${bbox.join(',')});`);
+  if(selected.includes('hotel')){push('node[tourism=hotel]');push('node[tourism=guest_house]');push('node[tourism=hostel]');push('node[tourism=motel]');}
+  if(selected.includes('restaurant')) push('node[amenity=restaurant]');
+  if(selected.includes('cafe')) push('node[amenity=cafe]');
+  if(selected.includes('bar')) push('node[amenity=bar]');
+  if(selected.includes('fuel')) push('node[amenity=fuel]');
+  if(selected.includes('hospital')) push('node[amenity=hospital]');
+  if(selected.includes('pharmacy')) push('node[amenity=pharmacy]');
+  if(selected.includes('viewpoint')) push('node[tourism=viewpoint]');
+  if(selected.includes('attraction')) push('node[tourism=attraction]');
+  const url=`https://overpass-api.de/api/interpreter?data=${encodeURIComponent('[out:json][timeout:25];('+parts.join('')+');out center;')}`;
+  poiLayer.clearLayers();
+  document.getElementById('poiCount').textContent='Atualizando POIs…';
+  try{
+    const r=await fetch(url); const j=await r.json();
+    const line=turf.lineString(routeLine.getLatLngs().map(p=>[p.lng,p.lat]));
+    let c=0;
+    for(const el of j.elements||[]){
+      const lat=el.lat||(el.center&&el.center.lat);
+      const lon=el.lon||(el.center&&el.center.lon);
+      if(lat==null||lon==null) continue;
+      const d=turf.pointToLineDistance(turf.point([lon,lat]), line, {units:'meters'});
+      if(d<=radiusM){
+        const tags=el.tags||{};
+        const cat=tags.tourism||tags.amenity||'poi';
+        const name=tags.name||'(sem nome)';
+        const phone=tags['phone']||tags['contact:phone']||tags['phone:mobile']||'';
+        const website=tags['website']||tags['contact:website']||'';
+        const info=[]; if(phone) info.push('Fone: '+phone); if(website) info.push(`<a href="${website}" target="_blank">Site</a>`);
+        L.marker([lat,lon],{icon:iconFor(cat)}).bindPopup(`<b>${name}</b><br/><span class="muted">${cat}</span><br/>${info.join('<br/>')}`).addTo(poiLayer);
+        c++;
+      }
+    }
+    document.getElementById('poiCount').textContent=`${c} ponto(s) dentro de ${radiusM} m do trajeto.`;
+  }catch(e){ document.getElementById('poiCount').textContent='Erro ao buscar POIs.'; }
+}
+document.getElementById('poisBtn').addEventListener('click',fetchPOIs);
+
+// registrar service worker
+if("serviceWorker" in navigator){
+  window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js"));
+}
+</script>
+</body>
+</html>
