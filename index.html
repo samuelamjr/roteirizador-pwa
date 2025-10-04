@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
   <style>
     html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto; }
-    #app { display: grid; grid-template-columns: 340px 1fr; height: 100%; }
+    #app { display: grid; grid-template-columns: 360px 1fr; height: 100%; }
     #sidebar { padding: 10px; border-right: 1px solid #e5e7eb; overflow:auto; background: #fafafa; }
     #map { width: 100%; height: 100%; }
     .panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 10px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
@@ -22,10 +22,19 @@
     .muted { color:#6b7280; font-size:12px; }
     .legend { display:flex; flex-wrap: wrap; gap:6px; }
     .legend span { font-size:12px; padding:4px 6px; border-radius:6px; background:#eef2ff; }
+
+    /* Estilo do passo a passo */
+    #directions { max-height: 220px; overflow:auto; border:1px solid #e5e7eb; border-radius:10px; padding:8px; background:#fff; }
+    .step { display:flex; justify-content:space-between; gap:8px; padding:6px 8px; border-bottom:1px dashed #e5e7eb; }
+    .step:last-child { border-bottom:0; }
+    .step b { margin-right:6px; }
+    .d { color:#374151; white-space:nowrap; font-variant-numeric: tabular-nums; }
+    .sumline { margin:6px 0 4px; color:#374151; font-size:12px; }
+
     @media (max-width: 900px) {
       #app { grid-template-columns: 1fr; }
       #sidebar { border-right: 0; border-bottom: 1px solid #e5e7eb; }
-      #map { height: calc(100vh - 520px); }
+      #map { height: calc(100vh - 640px); } /* aumenta espaço pra direções */
     }
   </style>
 </head>
@@ -56,13 +65,13 @@
         <button class="btn" onclick="abrirAppleMaps()">Abrir no Apple Maps</button>
         <button class="btn secondary" onclick="abrirGoogleMaps()">Abrir no Google Maps</button>
       </div>
-      <!-- Novo: Exportar GPX -->
-      <div class="row">
-        <button class="btn" onclick="exportarGPX()">Exportar GPX</button>
-      </div>
-
       <div class="muted">💡 No PC, arraste a linha azul. No celular, toque em “Desviar” e depois no mapa para forçar um caminho.</div>
       <div id="summary" class="muted" style="margin-top:6px;">—</div>
+    </div>
+
+    <div class="panel">
+      <h3>Instruções passo a passo</h3>
+      <div id="directions">Trace uma rota para ver as instruções.</div>
     </div>
 
     <div class="panel">
@@ -86,6 +95,9 @@
         <button id="poisBtn" class="btn" disabled>Buscar POIs</button>
         <span class="muted">POIs atualizam automaticamente ao mudar a rota.</span>
       </div>
+      <div class="row">
+        <button class="btn" onclick="exportarGPX()">Exportar GPX</button>
+      </div>
       <div id="poiCount" class="muted"></div>
     </div>
 
@@ -107,146 +119,177 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).a
 let routeControl, autoFetchTimer=null;
 const poiLayer = L.layerGroup().addTo(map);
 
+// ícones POI
 const iconFor = (cat)=>L.divIcon({className:'poi',html:`<div style="background:#111827;color:#fff;border-radius:10px;padding:2px 6px;font-size:12px;">${{hotel:'🏨',restaurant:'🍽️',cafe:'☕',bar:'🍺',fuel:'⛽',hospital:'🏥',pharmacy:'💊',viewpoint:'👀',attraction:'🎯'}[cat]||'📍'}</div>`});
 
+// utilitários
+const fmtDist=(m)=> m>=1000 ? (m/1000).toFixed(1)+' km' : Math.round(m)+' m';
+
+// geocodificação
 async function geocode(q){
- const u=`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`;
- const r=await fetch(u,{headers:{'Accept-Language':'pt-BR'}});
- const j=await r.json(); if(!j[0])throw new Error("Endereço não encontrado: "+q);
- return L.latLng(parseFloat(j[0].lat),parseFloat(j[0].lon));
+  const u=`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`;
+  const r=await fetch(u,{headers:{'Accept-Language':'pt-BR'}});
+  const j=await r.json(); if(!j[0]) throw new Error("Endereço não encontrado: "+q);
+  return L.latLng(parseFloat(j[0].lat),parseFloat(j[0].lon));
 }
 
+// cria/atualiza controle de rota
 function buildRouter(profile){
- if(!routeControl){
-  routeControl=L.Routing.control({
-    waypoints:[], routeWhileDragging:true, draggableWaypoints:true, addWaypoints:true,
-    lineOptions:{addWaypoints:true},
-    plan:L.Routing.plan([], {createMarker:(i,wp)=>L.marker(wp.latLng)}),
-    router:L.Routing.osrmv1({serviceUrl:'https://router.project-osrm.org/route/v1',profile})
-  }).addTo(map);
-  const refresh=()=>{if(autoFetchTimer)clearTimeout(autoFetchTimer);autoFetchTimer=setTimeout(fetchPOIs,600);};
-  routeControl.on('routesfound',e=>{
-    const r=e.routes[0];if(!r)return;
-    const km=(r.summary.totalDistance/1000).toFixed(1);
-    const min=Math.round(r.summary.totalTime/60);
-    document.getElementById('summary').textContent=`Distância: ${km} km · Tempo: ${min} min`;
-    document.getElementById('poisBtn').disabled=false;
-    refresh();
-  });
-  routeControl.on('waypointschanged',refresh);
- }else routeControl.getRouter().options.profile=profile;
+  if(!routeControl){
+    routeControl=L.Routing.control({
+      waypoints:[], routeWhileDragging:true, draggableWaypoints:true, addWaypoints:true,
+      lineOptions:{addWaypoints:true},
+      plan:L.Routing.plan([], {createMarker:(i,wp)=>L.marker(wp.latLng)}),
+      router:L.Routing.osrmv1({serviceUrl:'https://router.project-osrm.org/route/v1',profile})
+    }).addTo(map);
+
+    const refresh=()=>{ if(autoFetchTimer) clearTimeout(autoFetchTimer); autoFetchTimer=setTimeout(fetchPOIs,600); };
+
+    // sempre que a rota for encontrada/alterada → atualiza resumo, instruções e POIs
+    routeControl.on('routesfound',e=>{
+      const r=e.routes[0]; if(!r) return;
+      document.getElementById('summary').textContent=
+        `Distância: ${fmtDist(r.summary.totalDistance)} · Tempo: ${Math.round(r.summary.totalTime/60)} min`;
+      document.getElementById('poisBtn').disabled=false;
+      renderDirections(r); // <-- passo a passo
+      refresh();
+    });
+    routeControl.on('waypointschanged', ()=>{}); // routesfound já cobrindo
+  }else{
+    routeControl.getRouter().options.profile=profile;
+  }
 }
 buildRouter('driving');
 
+// botões principais
 document.getElementById('goBtn').addEventListener('click',async()=>{
- const s=document.getElementById('start').value.trim();
- const e=document.getElementById('end').value.trim();
- const p=document.getElementById('profile').value;
- if(!s||!e){alert('Informe origem e destino.');return;}
- buildRouter(p);
- try{
-   const[a,b]=await Promise.all([geocode(s),geocode(e)]);
-   routeControl.setWaypoints([a,b]);poiLayer.clearLayers();
-   document.getElementById('poiCount').textContent='';
- }catch(err){alert(err.message);}
+  const s=document.getElementById('start').value.trim();
+  const e=document.getElementById('end').value.trim();
+  const p=document.getElementById('profile').value;
+  if(!s||!e){alert('Informe origem e destino.');return;}
+  buildRouter(p);
+  try{
+    const [a,b]=await Promise.all([geocode(s),geocode(e)]);
+    routeControl.setWaypoints([a,b]); poiLayer.clearLayers();
+    document.getElementById('poiCount').textContent='';
+    document.getElementById('directions').innerHTML='Gerando instruções…';
+  }catch(err){ alert(err.message); }
 });
 document.getElementById('clearBtn').addEventListener('click',()=>{
- if(routeControl)routeControl.setWaypoints([]);poiLayer.clearLayers();
- document.getElementById('summary').textContent='—';
- document.getElementById('poiCount').textContent='';
- document.getElementById('poisBtn').disabled=true;
+  if(routeControl) routeControl.setWaypoints([]);
+  poiLayer.clearLayers();
+  document.getElementById('summary').textContent='—';
+  document.getElementById('poiCount').textContent='';
+  document.getElementById('directions').textContent='Trace uma rota para ver as instruções.';
+  document.getElementById('poisBtn').disabled=true;
 });
 document.getElementById('profile').addEventListener('change',e=>buildRouter(e.target.value));
 
+// modo desvio (toque no mapa)
 let divertMode=false;
 document.getElementById('divertBtn').addEventListener('click',()=>{
- divertMode=!divertMode;
- document.getElementById('divertBtn').style.background=divertMode?'#16a34a':'#0b5ed7';
+  divertMode=!divertMode;
+  document.getElementById('divertBtn').style.background=divertMode?'#16a34a':'#0b5ed7';
 });
 document.getElementById('undoDivertBtn').addEventListener('click',()=>{
- if(!routeControl)return;
- const wps=routeControl.getWaypoints();
- if(wps.length>2)routeControl.spliceWaypoints(wps.length-2,1);
+  if(!routeControl) return;
+  const wps=routeControl.getWaypoints();
+  if(wps.length>2) routeControl.spliceWaypoints(wps.length-2,1);
 });
 map.on('click',e=>{
- if(!divertMode||!routeControl)return;
- const wps=routeControl.getWaypoints().filter(w=>!!w.latLng);
- if(wps.length<2){divertMode=false;document.getElementById('divertBtn').style.background='#0b5ed7';return;}
- routeControl.spliceWaypoints(wps.length-1,0,e.latlng);
- divertMode=false;
- document.getElementById('divertBtn').style.background='#0b5ed7';
+  if(!divertMode||!routeControl) return;
+  const wps=routeControl.getWaypoints().filter(w=>!!w.latLng);
+  if(wps.length<2){ divertMode=false; document.getElementById('divertBtn').style.background='#0b5ed7'; return; }
+  routeControl.spliceWaypoints(wps.length-1,0,e.latlng);
+  divertMode=false; document.getElementById('divertBtn').style.background='#0b5ed7';
 });
 
+// renderiza instruções (turn-by-turn) no painel
+function renderDirections(route){
+  const box = document.getElementById('directions');
+  const instr = route.instructions || [];
+  if(!instr.length){
+    box.textContent = 'Sem instruções detalhadas para esta rota.';
+    return;
+  }
+  let totalStr = `<div class="sumline"><b>Total:</b> ${fmtDist(route.summary.totalDistance)} · ${Math.round(route.summary.totalTime/60)} min</div>`;
+  let html = instr.map((ins, i) => {
+    const txt = ins.text || '';
+    const dist = fmtDist(ins.distance || 0);
+    return `<div class="step"><div><b>${i+1}.</b> ${txt}</div><div class="d">${dist}</div></div>`;
+  }).join('');
+  box.innerHTML = totalStr + html;
+}
+
+// POIs (Overpass)
 async function fetchPOIs(){
- const routes=routeControl&&routeControl._routes;
- if(!routes||!routes[0])return;
- const coords=routes[0].coordinates;
- const turfLine=turf.lineString(coords.map(p=>[p.lng,p.lat]));
- const radiusM=parseInt(document.getElementById('radius').value||'1000',10);
- const selected=Array.from(document.querySelectorAll('.cat:checked')).map(c=>c.value);
- if(selected.length===0){document.getElementById('poiCount').textContent='Selecione categorias.';return;}
- const l=L.polyline(coords);const b=l.getBounds();
- const bbox=[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()];
- const parts=[];const push=q=>parts.push(q+`(${bbox.join(',')});`);
- if(selected.includes('hotel')){push('node[tourism=hotel]');push('node[tourism=guest_house]');push('node[tourism=hostel]');push('node[tourism=motel]');}
- if(selected.includes('restaurant'))push('node[amenity=restaurant]');
- if(selected.includes('cafe'))push('node[amenity=cafe]');
- if(selected.includes('bar'))push('node[amenity=bar]');
- if(selected.includes('fuel'))push('node[amenity=fuel]');
- if(selected.includes('hospital'))push('node[amenity=hospital]');
- if(selected.includes('pharmacy'))push('node[amenity=pharmacy]');
- if(selected.includes('viewpoint'))push('node[tourism=viewpoint]');
- if(selected.includes('attraction'))push('node[tourism=attraction]');
- const url=`https://overpass-api.de/api/interpreter?data=${encodeURIComponent('[out:json][timeout:25];('+parts.join('')+');out center;')}`;
- poiLayer.clearLayers();
- document.getElementById('poiCount').textContent='Atualizando...';
- try{
-   const r=await fetch(url);const j=await r.json();let c=0;
-   for(const el of j.elements||[]){
-     const lat=el.lat||(el.center&&el.center.lat);
-     const lon=el.lon||(el.center&&el.center.lon);
-     if(lat==null||lon==null)continue;
-     const d=turf.pointToLineDistance(turf.point([lon,lat]),turfLine,{units:'meters'});
-     if(d<=radiusM){
-       const tags=el.tags||{};const cat=tags.tourism||tags.amenity||'poi';
-       const name=tags.name||'(sem nome)';
-       const phone=tags['phone']||tags['contact:phone']||'';
-       const website=tags['website']||tags['contact:website']||'';
-       const info=[];if(phone)info.push('Fone: '+phone);if(website)info.push(`<a href="${website}" target="_blank">Site</a>`);
-       L.marker([lat,lon],{icon:iconFor(cat)}).bindPopup(`<b>${name}</b><br>${cat}<br>${info.join('<br>')}`).addTo(poiLayer);
-       c++;
-     }
-   }
-   document.getElementById('poiCount').textContent=`${c} ponto(s) dentro de ${radiusM} m.`;
- }catch(e){document.getElementById('poiCount').textContent='Erro ao buscar POIs.';}
+  const routes=routeControl&&routeControl._routes;
+  if(!routes||!routes[0])return;
+  const coords=routes[0].coordinates;
+  const turfLine=turf.lineString(coords.map(p=>[p.lng,p.lat]));
+  const radiusM=parseInt(document.getElementById('radius').value||'1000',10);
+  const selected=Array.from(document.querySelectorAll('.cat:checked')).map(c=>c.value);
+  if(selected.length===0){document.getElementById('poiCount').textContent='Selecione categorias.';return;}
+  const l=L.polyline(coords);const b=l.getBounds();
+  const bbox=[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()];
+  const parts=[];const push=q=>parts.push(q+`(${bbox.join(',')});`);
+  if(selected.includes('hotel')){push('node[tourism=hotel]');push('node[tourism=guest_house]');push('node[tourism=hostel]');push('node[tourism=motel]');}
+  if(selected.includes('restaurant'))push('node[amenity=restaurant]');
+  if(selected.includes('cafe'))push('node[amenity=cafe]');
+  if(selected.includes('bar'))push('node[amenity=bar]');
+  if(selected.includes('fuel'))push('node[amenity=fuel]');
+  if(selected.includes('hospital'))push('node[amenity=hospital]');
+  if(selected.includes('pharmacy'))push('node[amenity=pharmacy]');
+  if(selected.includes('viewpoint'))push('node[tourism=viewpoint]');
+  if(selected.includes('attraction'))push('node[tourism=attraction]');
+  const url=`https://overpass-api.de/api/interpreter?data=${encodeURIComponent('[out:json][timeout:25];('+parts.join('')+');out center;')}`;
+  poiLayer.clearLayers();
+  document.getElementById('poiCount').textContent='Atualizando...';
+  try{
+    const r=await fetch(url);const j=await r.json();let c=0;
+    for(const el of j.elements||[]){
+      const lat=el.lat||(el.center&&el.center.lat);
+      const lon=el.lon||(el.center&&el.center.lon);
+      if(lat==null||lon==null)continue;
+      const d=turf.pointToLineDistance(turf.point([lon,lat]),turfLine,{units:'meters'});
+      if(d<=radiusM){
+        const tags=el.tags||{};const cat=tags.tourism||tags.amenity||'poi';
+        const name=tags.name||'(sem nome)';
+        const phone=tags['phone']||tags['contact:phone']||'';
+        const website=tags['website']||tags['contact:website']||'';
+        const info=[];if(phone)info.push('Fone: '+phone);if(website)info.push(`<a href="${website}" target="_blank">Site</a>`);
+        L.marker([lat,lon],{icon:iconFor(cat)}).bindPopup(`<b>${name}</b><br>${cat}<br>${info.join('<br>')}`).addTo(poiLayer);
+        c++;
+      }
+    }
+    document.getElementById('poiCount').textContent=`${c} ponto(s) dentro de ${radiusM} m.`;
+  }catch(e){document.getElementById('poiCount').textContent='Erro ao buscar POIs.';}
 }
 document.getElementById('poisBtn').addEventListener('click',fetchPOIs);
 
-// === Botões Apple / Google Maps ===
-function enc(s){return encodeURIComponent(s.trim());}
+// Apple / Google Maps
+function enc(s){return encodeURIComponent((s||'').trim());}
 function getOrigem(){return document.getElementById('start').value;}
 function getDestino(){return document.getElementById('end').value;}
 function abrirAppleMaps(){
- const url=`maps://?saddr=${enc(getOrigem())}&daddr=${enc(getDestino())}`;
- window.location.href=url;
+  const url=`maps://?saddr=${enc(getOrigem())}&daddr=${enc(getDestino())}`;
+  window.location.href=url;
 }
 function abrirGoogleMaps(){
- const url=`https://www.google.com/maps/dir/?api=1&origin=${enc(getOrigem())}&destination=${enc(getDestino())}&travelmode=driving`;
- window.open(url,'_blank');
+  const url=`https://www.google.com/maps/dir/?api=1&origin=${enc(getOrigem())}&destination=${enc(getDestino())}&travelmode=driving`;
+  window.open(url,'_blank');
 }
 
-// === Exportar GPX ===
+// Exportar GPX
 function exportarGPX(){
   const routes = routeControl && routeControl._routes;
   if(!routes || !routes[0] || !routes[0].coordinates){
     alert('Trace uma rota antes de exportar o GPX.');
     return;
   }
-  const coords = routes[0].coordinates; // array de {lat, lng}
+  const coords = routes[0].coordinates; // {lat,lng}
   const origem = routeControl.getWaypoints().find(w=>!!w.latLng)?.latLng;
   const destino = [...routeControl.getWaypoints()].reverse().find(w=>!!w.latLng)?.latLng;
-
-  const esc = (s)=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const now = new Date().toISOString();
 
   let gpx = `<?xml version="1.0" encoding="UTF-8"?>\n`;
@@ -254,25 +297,18 @@ function exportarGPX(){
   if(origem){ gpx += `  <wpt lat="${origem.lat}" lon="${origem.lng}"><name>Origem</name><time>${now}</time></wpt>\n`; }
   if(destino){ gpx += `  <wpt lat="${destino.lat}" lon="${destino.lng}"><name>Destino</name><time>${now}</time></wpt>\n`; }
   gpx += `  <trk><name>Rota exportada</name><trkseg>\n`;
-  for(const p of coords){
-    gpx += `    <trkpt lat="${p.lat}" lon="${p.lng}"><time>${now}</time></trkpt>\n`;
-  }
+  for(const p of coords){ gpx += `    <trkpt lat="${p.lat}" lon="${p.lng}"><time>${now}</time></trkpt>\n`; }
   gpx += `  </trkseg></trk>\n</gpx>\n`;
 
   const blob = new Blob([gpx], {type: 'application/gpx+xml'});
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `rota_${Date.now()}.gpx`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  const a = document.createElement('a'); a.href = url; a.download = `rota_${Date.now()}.gpx`;
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
 // Service Worker
 if("serviceWorker" in navigator){
- window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js"));
+  window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js"));
 }
 </script>
 </body>
