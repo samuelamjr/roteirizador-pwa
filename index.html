@@ -9,123 +9,164 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
   <style>
+    :root { --sidebar-w: 360px; }
     html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto; }
-    #app { display: grid; grid-template-columns: 360px 1fr; height: 100%; }
+    /* Topbar com botão de alternância */
+    #topbar{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-bottom:1px solid #e5e7eb;background:#fff;gap:8px}
+    #toggleLayout{background:#0b5ed7;color:#fff;border:0;padding:8px 12px;border-radius:10px;cursor:pointer}
+    #brand{font-weight:600}
+    /* Layout principal */
+    #app { display: grid; grid-template-columns: var(--sidebar-w) 1fr; height: calc(100% - 49px); }
     #sidebar { padding: 10px; border-right: 1px solid #e5e7eb; overflow:auto; background: #fafafa; }
     #map { width: 100%; height: 100%; }
     .panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 10px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
     .panel h3 { margin: 0 0 8px; font-size: 16px; }
     .row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
-    input[type="text"], select { width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 8px; }
-    .btn { background: #0b5ed7; color:#fff; border:0; padding:8px 10px; border-radius:10px; cursor:pointer; flex:1; }
+    input[type="text"], select { flex:1; min-width: 120px; padding: 8px; border: 1px solid #d1d5db; border-radius: 8px; }
+    .btn { background: #0b5ed7; color:#fff; border:0; padding:8px 10px; border-radius:10px; cursor:pointer; }
     .btn.secondary { background:#374151; }
     .muted { color:#6b7280; font-size:12px; }
     .legend { display:flex; flex-wrap: wrap; gap:6px; }
     .legend span { font-size:12px; padding:4px 6px; border-radius:6px; background:#eef2ff; }
 
-    /* Estilo do passo a passo */
+    /* Passo a passo */
     #directions { max-height: 220px; overflow:auto; border:1px solid #e5e7eb; border-radius:10px; padding:8px; background:#fff; }
     .step { display:flex; justify-content:space-between; gap:8px; padding:6px 8px; border-bottom:1px dashed #e5e7eb; }
     .step:last-child { border-bottom:0; }
-    .step b { margin-right:6px; }
     .d { color:#374151; white-space:nowrap; font-variant-numeric: tabular-nums; }
     .sumline { margin:6px 0 4px; color:#374151; font-size:12px; }
 
+    /* Modo mapa em tela cheia (esconde o sidebar) */
+    .map-full #app { grid-template-columns: 0 1fr; }
+    .map-full #sidebar { display:none; }
+    .map-full #toggleLayout { background:#111827; }
+    .map-full #toggleLayout::after { content:''; }
+
     @media (max-width: 900px) {
+      :root { --sidebar-w: 100%; }
       #app { grid-template-columns: 1fr; }
       #sidebar { border-right: 0; border-bottom: 1px solid #e5e7eb; }
-      #map { height: calc(100vh - 640px); } /* aumenta espaço pra direções */
+      #directions { max-height: 180px; }
     }
+
+    /* Botão flutuante extra para alternar (útil no celular) */
+    #floatingToggle {
+      position: fixed; right: 12px; bottom: 12px; z-index: 1000;
+      background:#0b5ed7; color:#fff; border:0; border-radius:999px; padding:10px 12px; box-shadow:0 6px 16px rgba(0,0,0,.2); display:none;
+    }
+    @media (max-width: 900px){ #floatingToggle{ display:block; } }
   </style>
 </head>
 <body>
-<div id="app">
-  <div id="sidebar">
-    <div class="panel">
-      <h3>Planejar rota</h3>
-      <div class="row"><input id="start" type="text" placeholder="Origem (ex.: São Paulo, SP)" /></div>
-      <div class="row"><input id="end" type="text" placeholder="Destino (ex.: Campos do Jordão, SP)" /></div>
-      <div class="row">
-        <select id="profile">
-          <option value="driving">Carro / Moto</option>
-          <option value="foot">A pé</option>
-          <option value="cycling">Bicicleta</option>
-        </select>
-        <input id="radius" type="number" min="100" step="100" value="1000" title="Raio (m)" />
-      </div>
-      <div class="row">
-        <button id="goBtn" class="btn">Traçar rota</button>
-        <button id="clearBtn" class="btn secondary">Limpar</button>
-      </div>
-      <div class="row">
-        <button id="divertBtn" class="btn">Desviar (tocar no mapa)</button>
-        <button id="undoDivertBtn" class="btn secondary">Remover último</button>
-      </div>
-      <div class="row">
-        <button class="btn" onclick="abrirAppleMaps()">Abrir no Apple Maps</button>
-        <button class="btn secondary" onclick="abrirGoogleMaps()">Abrir no Google Maps</button>
-      </div>
-      <div class="muted">💡 No PC, arraste a linha azul. No celular, toque em “Desviar” e depois no mapa para forçar um caminho.</div>
-      <div id="summary" class="muted" style="margin-top:6px;">—</div>
-    </div>
-
-    <div class="panel">
-      <h3>Instruções passo a passo</h3>
-      <div id="directions">Trace uma rota para ver as instruções.</div>
-    </div>
-
-    <div class="panel">
-      <h3>POIs ao longo do trajeto</h3>
-      <div class="legend">
-        <span>🏨 Hotéis</span><span>🍽️ Restaurantes</span><span>☕ Cafés</span><span>🍺 Bares</span>
-        <span>⛽ Postos</span><span>🏥 Hospitais</span><span>💊 Farmácias</span><span>👀 Mirantes</span><span>🎯 Atrações</span>
-      </div>
-      <div style="margin-top:8px">
-        <label><input type="checkbox" class="cat" value="hotel" checked /> Hotéis/pousadas</label><br />
-        <label><input type="checkbox" class="cat" value="restaurant" checked /> Restaurantes</label><br />
-        <label><input type="checkbox" class="cat" value="cafe" /> Cafés</label><br />
-        <label><input type="checkbox" class="cat" value="bar" /> Bares</label><br />
-        <label><input type="checkbox" class="cat" value="fuel" checked /> Postos</label><br />
-        <label><input type="checkbox" class="cat" value="hospital" checked /> Hospitais</label><br />
-        <label><input type="checkbox" class="cat" value="pharmacy" /> Farmácias</label><br />
-        <label><input type="checkbox" class="cat" value="viewpoint" /> Mirantes</label><br />
-        <label><input type="checkbox" class="cat" value="attraction" /> Atrações</label>
-      </div>
-      <div class="row" style="margin-top:8px">
-        <button id="poisBtn" class="btn" disabled>Buscar POIs</button>
-        <span class="muted">POIs atualizam automaticamente ao mudar a rota.</span>
-      </div>
-      <div class="row">
-        <button class="btn" onclick="exportarGPX()">Exportar GPX</button>
-      </div>
-      <div id="poiCount" class="muted"></div>
-    </div>
-
-    <div class="panel">
-      <h3>Instalar</h3>
-      <div class="muted">No celular, escolha “Adicionar à tela inicial”.</div>
-    </div>
+  <div id="topbar">
+    <div id="brand">🧭 Roteirizador</div>
+    <button id="toggleLayout" title="Alternar mapa/painel">🗺️ Mostrar mapa</button>
   </div>
-  <div id="map"></div>
-</div>
+
+  <div id="app">
+    <div id="sidebar">
+      <div class="panel">
+        <h3>Planejar rota</h3>
+        <div class="row"><input id="start" type="text" placeholder="Origem (ex.: São Paulo, SP)" /></div>
+        <div class="row"><input id="end" type="text" placeholder="Destino (ex.: Campos do Jordão, SP)" /></div>
+        <div class="row" style="gap:8px">
+          <select id="profile">
+            <option value="driving">Carro / Moto</option>
+            <option value="foot">A pé</option>
+            <option value="cycling">Bicicleta</option>
+          </select>
+          <input id="radius" type="number" min="100" step="100" value="1000" title="Raio (m)" />
+        </div>
+        <div class="row" style="gap:8px">
+          <button id="goBtn" class="btn">Traçar rota</button>
+          <button id="clearBtn" class="btn secondary">Limpar</button>
+        </div>
+        <div class="row" style="gap:8px">
+          <button id="divertBtn" class="btn">Desviar (tocar no mapa)</button>
+          <button id="undoDivertBtn" class="btn secondary">Remover último</button>
+        </div>
+        <div class="row" style="gap:8px">
+          <button class="btn" onclick="abrirAppleMaps()">Abrir no Apple Maps</button>
+          <button class="btn secondary" onclick="abrirGoogleMaps()">Abrir no Google Maps</button>
+        </div>
+        <div class="row" style="gap:8px">
+          <button class="btn" onclick="exportarGPX()">Exportar GPX</button>
+        </div>
+        <div class="muted">💡 No PC, arraste a linha azul. No celular, toque em “Desviar” e depois no mapa para forçar um caminho.</div>
+        <div id="summary" class="muted" style="margin-top:6px;">—</div>
+      </div>
+
+      <div class="panel">
+        <h3>Instruções passo a passo</h3>
+        <div id="directions">Trace uma rota para ver as instruções.</div>
+      </div>
+
+      <div class="panel">
+        <h3>POIs ao longo do trajeto</h3>
+        <div class="legend">
+          <span>🏨 Hotéis</span><span>🍽️ Restaurantes</span><span>☕ Cafés</span><span>🍺 Bares</span>
+          <span>⛽ Postos</span><span>🏥 Hospitais</span><span>💊 Farmácias</span><span>👀 Mirantes</span><span>🎯 Atrações</span>
+        </div>
+        <div style="margin-top:8px">
+          <label><input type="checkbox" class="cat" value="hotel" checked /> Hotéis/pousadas</label><br />
+          <label><input type="checkbox" class="cat" value="restaurant" checked /> Restaurantes</label><br />
+          <label><input type="checkbox" class="cat" value="cafe" /> Cafés</label><br />
+          <label><input type="checkbox" class="cat" value="bar" /> Bares</label><br />
+          <label><input type="checkbox" class="cat" value="fuel" checked /> Postos</label><br />
+          <label><input type="checkbox" class="cat" value="hospital" checked /> Hospitais</label><br />
+          <label><input type="checkbox" class="cat" value="pharmacy" /> Farmácias</label><br />
+          <label><input type="checkbox" class="cat" value="viewpoint" /> Mirantes</label><br />
+          <label><input type="checkbox" class="cat" value="attraction" /> Atrações</label>
+        </div>
+        <div class="row" style="margin-top:8px;gap:8px">
+          <button id="poisBtn" class="btn" disabled>Buscar POIs</button>
+          <span class="muted">POIs atualizam automaticamente ao mudar a rota.</span>
+        </div>
+        <div id="poiCount" class="muted"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Instalar</h3>
+        <div class="muted">No celular, escolha “Adicionar à tela inicial”.</div>
+      </div>
+    </div>
+
+    <div id="map"></div>
+  </div>
+
+  <!-- Botão flutuante (útil no celular) -->
+  <button id="floatingToggle" title="Alternar mapa/painel">🗺️</button>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.min.js"></script>
 <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
 
 <script>
-const map = L.map('map').setView([-23.55,-46.63],7);
+// ===== Alternar painel/mapa =====
+const body = document.body;
+const toggleBtn = document.getElementById('toggleLayout');
+const floatingToggle = document.getElementById('floatingToggle');
+let map; let routeControl; let autoFetchTimer=null;
+const poiLayer = L.layerGroup();
+
+function setMapFull(full){
+  body.classList.toggle('map-full', full);
+  toggleBtn.textContent = full ? '🗂️ Mostrar painel' : '🗺️ Mostrar mapa';
+  // dar um tempo pro CSS aplicar, depois recalcula o tamanho do mapa
+  setTimeout(()=> map && map.invalidateSize(), 220);
+}
+toggleBtn.addEventListener('click',()=> setMapFull(!body.classList.contains('map-full')));
+floatingToggle.addEventListener('click',()=> setMapFull(!body.classList.contains('map-full')));
+
+// ===== Mapa =====
+map = L.map('map').setView([-23.55,-46.63],7);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
-let routeControl, autoFetchTimer=null;
-const poiLayer = L.layerGroup().addTo(map);
+poiLayer.addTo(map);
 
-// ícones POI
+// ===== Utilitários =====
 const iconFor = (cat)=>L.divIcon({className:'poi',html:`<div style="background:#111827;color:#fff;border-radius:10px;padding:2px 6px;font-size:12px;">${{hotel:'🏨',restaurant:'🍽️',cafe:'☕',bar:'🍺',fuel:'⛽',hospital:'🏥',pharmacy:'💊',viewpoint:'👀',attraction:'🎯'}[cat]||'📍'}</div>`});
-
-// utilitários
 const fmtDist=(m)=> m>=1000 ? (m/1000).toFixed(1)+' km' : Math.round(m)+' m';
 
-// geocodificação
 async function geocode(q){
   const u=`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`;
   const r=await fetch(u,{headers:{'Accept-Language':'pt-BR'}});
@@ -133,7 +174,7 @@ async function geocode(q){
   return L.latLng(parseFloat(j[0].lat),parseFloat(j[0].lon));
 }
 
-// cria/atualiza controle de rota
+// ===== Roteador =====
 function buildRouter(profile){
   if(!routeControl){
     routeControl=L.Routing.control({
@@ -145,23 +186,21 @@ function buildRouter(profile){
 
     const refresh=()=>{ if(autoFetchTimer) clearTimeout(autoFetchTimer); autoFetchTimer=setTimeout(fetchPOIs,600); };
 
-    // sempre que a rota for encontrada/alterada → atualiza resumo, instruções e POIs
     routeControl.on('routesfound',e=>{
       const r=e.routes[0]; if(!r) return;
       document.getElementById('summary').textContent=
         `Distância: ${fmtDist(r.summary.totalDistance)} · Tempo: ${Math.round(r.summary.totalTime/60)} min`;
       document.getElementById('poisBtn').disabled=false;
-      renderDirections(r); // <-- passo a passo
+      renderDirections(r);
       refresh();
     });
-    routeControl.on('waypointschanged', ()=>{}); // routesfound já cobrindo
   }else{
     routeControl.getRouter().options.profile=profile;
   }
 }
 buildRouter('driving');
 
-// botões principais
+// ===== Botões principais =====
 document.getElementById('goBtn').addEventListener('click',async()=>{
   const s=document.getElementById('start').value.trim();
   const e=document.getElementById('end').value.trim();
@@ -170,7 +209,7 @@ document.getElementById('goBtn').addEventListener('click',async()=>{
   buildRouter(p);
   try{
     const [a,b]=await Promise.all([geocode(s),geocode(e)]);
-    routeControl.setWaypoints([a,b]); poiLayer.clearLayers();
+    routeControl.setWaypoints([a,b]);poiLayer.clearLayers();
     document.getElementById('poiCount').textContent='';
     document.getElementById('directions').innerHTML='Gerando instruções…';
   }catch(err){ alert(err.message); }
@@ -185,11 +224,12 @@ document.getElementById('clearBtn').addEventListener('click',()=>{
 });
 document.getElementById('profile').addEventListener('change',e=>buildRouter(e.target.value));
 
-// modo desvio (toque no mapa)
+// ===== Desvio por toque =====
 let divertMode=false;
 document.getElementById('divertBtn').addEventListener('click',()=>{
   divertMode=!divertMode;
   document.getElementById('divertBtn').style.background=divertMode?'#16a34a':'#0b5ed7';
+  if(divertMode) setMapFull(true); // ajuda no celular: já abre mapa cheio pra tocar
 });
 document.getElementById('undoDivertBtn').addEventListener('click',()=>{
   if(!routeControl) return;
@@ -204,14 +244,11 @@ map.on('click',e=>{
   divertMode=false; document.getElementById('divertBtn').style.background='#0b5ed7';
 });
 
-// renderiza instruções (turn-by-turn) no painel
+// ===== Instruções passo a passo =====
 function renderDirections(route){
   const box = document.getElementById('directions');
   const instr = route.instructions || [];
-  if(!instr.length){
-    box.textContent = 'Sem instruções detalhadas para esta rota.';
-    return;
-  }
+  if(!instr.length){ box.textContent='Sem instruções detalhadas para esta rota.'; return; }
   let totalStr = `<div class="sumline"><b>Total:</b> ${fmtDist(route.summary.totalDistance)} · ${Math.round(route.summary.totalTime/60)} min</div>`;
   let html = instr.map((ins, i) => {
     const txt = ins.text || '';
@@ -221,7 +258,7 @@ function renderDirections(route){
   box.innerHTML = totalStr + html;
 }
 
-// POIs (Overpass)
+// ===== POIs (Overpass) =====
 async function fetchPOIs(){
   const routes=routeControl&&routeControl._routes;
   if(!routes||!routes[0])return;
@@ -267,7 +304,7 @@ async function fetchPOIs(){
 }
 document.getElementById('poisBtn').addEventListener('click',fetchPOIs);
 
-// Apple / Google Maps
+// ===== Apple/Google Maps =====
 function enc(s){return encodeURIComponent((s||'').trim());}
 function getOrigem(){return document.getElementById('start').value;}
 function getDestino(){return document.getElementById('end').value;}
@@ -280,14 +317,14 @@ function abrirGoogleMaps(){
   window.open(url,'_blank');
 }
 
-// Exportar GPX
+// ===== Exportar GPX =====
 function exportarGPX(){
   const routes = routeControl && routeControl._routes;
   if(!routes || !routes[0] || !routes[0].coordinates){
     alert('Trace uma rota antes de exportar o GPX.');
     return;
   }
-  const coords = routes[0].coordinates; // {lat,lng}
+  const coords = routes[0].coordinates;
   const origem = routeControl.getWaypoints().find(w=>!!w.latLng)?.latLng;
   const destino = [...routeControl.getWaypoints()].reverse().find(w=>!!w.latLng)?.latLng;
   const now = new Date().toISOString();
@@ -306,7 +343,7 @@ function exportarGPX(){
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
-// Service Worker
+// ===== Service Worker =====
 if("serviceWorker" in navigator){
   window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js"));
 }
